@@ -13,6 +13,7 @@ import "6.5840/mr"
 import "time"
 import "os"
 import "fmt"
+import "log"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -22,6 +23,7 @@ func main() {
 
 	m := mr.MakeCoordinator(os.Args[1:], 10)
 	for m.Done() == false {
+		log.Println("waiting")
 		time.Sleep(time.Second)
 	}
 

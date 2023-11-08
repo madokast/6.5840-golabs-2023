@@ -23,7 +23,20 @@ type ExampleReply struct {
 }
 
 // Add your RPC definitions here.
+type MapTaskReq struct {
 
+}
+
+// State 
+// 0 非法
+// 1 成功获取 Map 任务
+// 2 没有新的 Map 任务，但是 Map 阶段还未完成
+// 3 没有新的 Map 任务，Map 阶段已完成，该请求 Reduce 任务了
+type MapTeskRes struct {
+	Key string
+	Value string
+	State int
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
