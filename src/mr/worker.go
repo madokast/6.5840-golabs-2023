@@ -29,9 +29,8 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	// Your worker implementation here.
-
 	for { // maping
-		var mapReq MapTaskReq
+		var mapReq = MapTaskReq{}
 		var mapRes MapTeskRes
 		if call("Coordinator.GetMapTask", &mapReq, &mapRes) {
 			if mapRes.State == 0 || mapRes.State == 1 {
@@ -45,7 +44,7 @@ func Worker(mapf func(string, string) []KeyValue,
 					}
 				}
 			} else if mapRes.State == 2 {
-				time.Sleep(200 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 			} else if mapRes.State == 3 {
 				break
 			} else {
@@ -59,7 +58,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		var rdcTaskRes ReduceTaskRes
 		if call("Coordinator.GetReduceTask", &rdcTaskReq, &rdcTaskRes) {
 			if rdcTaskRes.State == 0 || rdcTaskRes.State == 1 {
-				makeReduceResult(rdcTaskRes.MapNumber, rdcTaskRes.TaskId, reducef)
+				makeReduceResult(rdcTaskRes.MapTaskIds, rdcTaskRes.TaskId, reducef)
 				var doneReq = ReduceTaskDoneReq{TaskId: rdcTaskRes.TaskId}
 				var doneRes ReduceTaskDoneRes
 				if call("Coordinator.ReduceTaskDone", &doneReq, &doneRes) {
@@ -68,7 +67,7 @@ func Worker(mapf func(string, string) []KeyValue,
 					}
 				}
 			} else if rdcTaskRes.State == 2 {
-				time.Sleep(200 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
 			} else if rdcTaskRes.State == 3 {
 				break
 			} else {
@@ -99,13 +98,14 @@ func writeMapResult(kvs []KeyValue, mapTaskId int, reduceNumber int) {
 	var files = make([]*os.File, reduceNumber)
 	var err error
 	for rn := 0; rn < reduceNumber; rn++ {
-		files[rn], err = os.Create(intermediateFileName(mapTaskId, rn))
+		files[rn], err = os.OpenFile(intermediateFileName(mapTaskId, rn), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666) // append
 		if err != nil {
 			log.Fatalf("cannot open %v %v", intermediateFileName(mapTaskId, rn), err)
 		}
 	}
 	for _, kv := range kvs {
 		var rn = ihash(kv.Key) % reduceNumber
+
 		_, err = files[rn].WriteString(fmt.Sprintf("%s\a%s\n", kv.Key, kv.Value))
 		if err != nil {
 			log.Fatalf("cannot write %v %v", intermediateFileName(mapTaskId, rn), err)
@@ -120,37 +120,45 @@ func writeMapResult(kvs []KeyValue, mapTaskId int, reduceNumber int) {
 	log.Printf("map[%d, %d] done\n", mapTaskId, reduceNumber)
 }
 
-func makeReduceResult(mapNumber, reduceTaskId int, reducef func(string, []string) string) {
-	reduceFileName := reducedFileName(reduceTaskId)
-	reduceFile, err := os.Create(reduceFileName)
-	if err != nil {
-		log.Fatalf("cannot create %v %v", reduceFileName, err)
-	}
-	for mapTaskId := 0; mapTaskId < mapNumber; mapTaskId++ {
+func makeReduceResult(mapTaskIds map[int]struct{}, reduceTaskId int, reducef func(string, []string) string) {
+	var m = map[string][]string{}
+	for mapTaskId := range mapTaskIds {
 		interFile := intermediateFileName(mapTaskId, reduceTaskId)
 		content := readMapFileContent(interFile)
-		err := os.Remove(interFile)
-		if err != nil {
-			log.Fatalf("cannot delete %v %v", interFile, err)
-		}
-		var m = map[string][]string{}
+		// err := os.Remove(interFile)
+		// if err != nil {
+		// 	log.Fatalf("cannot delete %v %v", interFile, err)
+		// }
+
 		for _, line := range strings.Split(content, "\n") {
-			if line == "" {
+			if len(line) == 0 {
 				continue
 			}
 			kv := strings.Split(line, "\a")
 			m[kv[0]] = append(m[kv[0]], kv[1])
 		}
-		for k, v := range m {
-			r := reducef(k, v)
-			reduceFile.WriteString(fmt.Sprintf("%v %v\n", k, r))
-		}
-
+	}
+	reduceFileName := reducedFileName(reduceTaskId)
+	reduceFile, err := os.Create(reduceFileName)
+	if err != nil {
+		log.Fatalf("cannot create %v %v", reduceFileName, err)
+	}
+	for k, v := range m {
+		r := reducef(k, v)
+		reduceFile.WriteString(fmt.Sprintf("%v %v\n", k, r))
 	}
 	err = reduceFile.Close()
 	if err != nil {
 		log.Fatalf("cannot close %v %v", reduceFileName, err)
 	}
+	// for mapTaskId := range mapTaskIds {
+	// 	interFile := intermediateFileName(mapTaskId, reduceTaskId)
+	// 	err := os.Remove(interFile)
+	// 	if err != nil {
+	// 		log.Fatalf("cannot delete %v %v", interFile, err)
+	// 	}
+	// }
+	log.Printf("reduce[%d] for %v done size %d", reduceTaskId, mapTaskIds, len(m))
 }
 
 func intermediateFileName(mapTaskId, reduceTaskId int) string {

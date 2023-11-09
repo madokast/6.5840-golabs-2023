@@ -14,14 +14,17 @@ import (
 
 type Coordinator struct {
 	// Your definitions here.
-	mapTasks    []MapTask
-	reduceTasks []ReduceTask // length nReduce
-	state       int          // 集群状态 0 初始化，1 map 进行中，2 reduce 中，3 结束
-	rw          sync.RWMutex
+	mapTasks          []MapTask
+	reduceTasks       []ReduceTask     // length nReduce
+	mapTaskIdGene     int              // 生成 mapTaskId
+	successMapTeskIds map[int]struct{} // 成功完成的 mapTaskId
+	state             int              // 集群状态 0 初始化，1 map 进行中，2 reduce 中，3 结束
+	rw                sync.RWMutex
 }
 
 type MapTask struct {
 	key       string
+	taskId    int       // 最后处理这一任务的 taskId
 	state     int       // 0 新任务，1 已分发未完成，2 已完成
 	startTime time.Time // 如果已分发，表示开始的时间
 }
@@ -55,18 +58,22 @@ func (c *Coordinator) GetMapTask(args *MapTaskReq, reply *MapTeskRes) error {
 		for i := range c.mapTasks {
 			if c.mapTasks[i].state == 0 {
 				reply.Key = c.mapTasks[i].key
-				reply.TaskId = i
+				reply.TaskId = c.mapTaskIdGene
 				reply.State = 0
+				c.mapTasks[i].taskId = c.mapTaskIdGene
 				c.mapTasks[i].startTime = now
 				c.mapTasks[i].state = 1
+				c.mapTaskIdGene++
 				return nil
 			} else if c.mapTasks[i].state == 1 {
 				if now.Sub(c.mapTasks[i].startTime) >= 10*time.Second {
 					reply.Key = c.mapTasks[i].key
-					reply.TaskId = i
+					reply.TaskId = c.mapTaskIdGene
 					reply.State = 1
+					c.mapTasks[i].taskId = c.mapTaskIdGene
 					c.mapTasks[i].startTime = now
 					c.mapTasks[i].state = 1
+					c.mapTaskIdGene++
 					return nil
 				}
 			}
@@ -89,15 +96,25 @@ func (c *Coordinator) MapTeskDone(args *MapTaskDoneReq, reply *MapTaskDoneRes) e
 	c.rw.Lock()
 	defer c.rw.Unlock()
 
-	c.mapTasks[args.TaskId].state = 2
+	c.successMapTeskIds[args.TaskId] = struct{}{}
+
+	var allFinish = true
 	for i := range c.mapTasks {
+		if c.mapTasks[i].taskId == args.TaskId {
+			c.mapTasks[i].state = 2
+			continue
+		}
 		if c.mapTasks[i].state != 2 {
-			reply.State = 0
-			return nil
+			allFinish = false
 		}
 	}
-	reply.State = 1
-	c.state = 2 // into reduce
+	if allFinish {
+		reply.State = 1
+		c.state = 2 // into reduce
+	} else {
+		reply.State = 0
+	}
+
 	return nil
 }
 
@@ -105,7 +122,7 @@ func (c *Coordinator) GetReduceTask(args *ReduceTaskReq, reply *ReduceTaskRes) e
 	defer func() { log.Printf("GetReduceTask %+v %+v", args, reply) }()
 	c.rw.Lock()
 	defer c.rw.Unlock()
-	reply.MapNumber = len(c.mapTasks)
+	reply.MapTaskIds = c.successMapTeskIds
 	switch c.state {
 	case 0:
 		fallthrough
@@ -202,13 +219,16 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := &Coordinator{}
+	c := &Coordinator{
+		successMapTeskIds: map[int]struct{}{},
+	}
 
 	// Your code here.
 	// 构建 mapTask
 	c.mapTasks = make([]MapTask, len(files))
 	for i, filename := range files {
 		c.mapTasks[i].key = filename
+		c.mapTasks[i].taskId = -1
 	}
 
 	// 构建 reduceTask

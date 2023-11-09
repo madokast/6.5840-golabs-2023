@@ -52,9 +52,9 @@ type ReduceTaskReq struct {
 }
 
 type ReduceTaskRes struct {
-	MapNumber int
-	TaskId    int
-	State     int // 0 新的 R 任务，第一次执行；1 重试的 R 任务；2 没有新任务，但是 R 阶段未完成；3 没有新任务了，退出程序
+	MapTaskIds map[int]struct{}
+	TaskId     int
+	State      int // 0 新的 R 任务，第一次执行；1 重试的 R 任务；2 没有新任务，但是 R 阶段未完成；3 没有新任务了，退出程序
 }
 
 type ReduceTaskDoneReq struct {
