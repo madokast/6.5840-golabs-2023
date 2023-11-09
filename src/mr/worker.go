@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"log"
 	"net/rpc"
+	"time"
 )
 
 // Map functions return a slice of KeyValue.
@@ -24,8 +25,53 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-
 	// Your worker implementation here.
+
+	for { // maping
+		var mapReq MapTaskReq
+		var mapRes MapTeskRes
+		if call("Coordinator.GetMapTask", &mapReq, &mapRes) {
+			if mapRes.State == 0 || mapRes.State == 1 {
+				var doneReq = MapTaskDoneReq{TaskId: mapRes.TaskId}
+				var doneRes MapTaskDoneRes
+				if call("Coordinator.MapTeskDone", &doneReq, &doneRes) {
+					if doneRes.State == 1 {
+						break
+					}
+				}
+			} else if mapRes.State == 2 {
+
+			} else if mapRes.State == 3 {
+				break
+			} else {
+				panic(mapRes.State)
+			}
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	for { // reducing
+		var rdcTaskReq ReduceTaskReq
+		var rdcTaskRes ReduceTaskRes
+		if call("Coordinator.GetReduceTask", &rdcTaskReq, &rdcTaskRes) {
+			if rdcTaskRes.State == 0 || rdcTaskRes.State == 1 {
+				var doneReq = ReduceTaskDoneReq{TaskId: rdcTaskRes.TaskId}
+				var doneRes ReduceTaskDoneRes
+				if call("Coordinator.ReduceTaskDone", &doneReq, &doneRes) {
+					if doneRes.State == 1 {
+						break
+					}
+				}
+			} else if rdcTaskRes.State == 2 {
+
+			} else if rdcTaskRes.State == 3 {
+				break
+			} else {
+				panic(rdcTaskRes.State)
+			}
+		}
+	}
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()

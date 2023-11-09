@@ -5,6 +5,7 @@ package main
 // in ../mr/worker.go. typically there will be
 // multiple worker processes, talking to one coordinator.
 //
+// go build -buildmode=plugin ../mrapps/wc.go
 // go run mrworker.go wc.so
 //
 // Please do not change this file.
